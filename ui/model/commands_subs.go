@@ -198,14 +198,13 @@ func (m *Model) handleSubsEpisodes(msg subsEpisodesMsg) tea.Cmd {
 }
 
 // addLatestSweep appends the newest episode of every subscribed show. The
-// sweep builds a list to work through, so it queues nothing. It reports
-// whether anything was added.
-func (m *Model) addLatestSweep(msg subsLatestAllMsg) bool {
+// sweep builds a list to work through, so it queues nothing.
+func (m *Model) addLatestSweep(msg subsLatestAllMsg) {
 	m.subs.loading = false
 	m.subs.status = ""
 	if len(msg.tracks) == 0 {
 		m.subs.err = "No episodes found across your subscriptions."
-		return false
+		return
 	}
 	m.playlist.Add(msg.tracks...)
 	m.loadedPlaylist = ""
@@ -214,13 +213,4 @@ func (m *Model) addLatestSweep(msg subsLatestAllMsg) bool {
 		m.subs.err = fmt.Sprintf("%d show(s) failed to load: %s", len(msg.failed), msg.failed[0])
 	}
 	m.status.Showf(statusTTLDefault, "Added the newest episode of %d show(s)", len(msg.tracks))
-	return true
-}
-
-// handleSubsLatestAll applies the sweep and returns the command to run.
-func (m *Model) handleSubsLatestAll(msg subsLatestAllMsg) tea.Cmd {
-	if !m.addLatestSweep(msg) {
-		return nil
-	}
-	return m.rearmPreload()
 }

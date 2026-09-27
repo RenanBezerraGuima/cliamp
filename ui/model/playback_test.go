@@ -70,6 +70,7 @@ func (f *playbackFakeEngine) PlayYTDLForGeneration(_ string, _ time.Duration, ge
 }
 func (f *playbackFakeEngine) Preload(path string, _ time.Duration) error {
 	f.preloadCalls = append(f.preloadCalls, path)
+	f.hasPreload = true
 	return nil
 }
 func (f *playbackFakeEngine) PreloadYTDL(string, time.Duration) error { return nil }
@@ -88,11 +89,13 @@ func (f *playbackFakeEngine) PreloadYTDLForGeneration(path string, _ time.Durati
 		return nil
 	}
 	f.preloadCalls = append(f.preloadCalls, path)
+	f.hasPreload = true
 	return nil
 }
 func (f *playbackFakeEngine) ClearPreload() {
 	f.clearPreloadCalls++
 	f.preloadGeneration++
+	f.hasPreload = false
 }
 func (f *playbackFakeEngine) Stop() {
 	f.stopCalls++
@@ -1183,8 +1186,11 @@ func TestGaplessAdvanceRecordsNewTrackEvenWithoutDuration(t *testing.T) {
 	}
 }
 
-func TestQueueToggleRearmsGaplessPreload(t *testing.T) {
-	player := &playbackFakeEngine{playing: true}
+// Queuing a track to play next makes the armed order-next preload stale. The
+// check Update runs after every message drops it, and the next arm (the tick
+// loop's) targets the queued track.
+func TestQueueToggleDropsStalePreload(t *testing.T) {
+	player := &playbackFakeEngine{playing: true, hasPreload: true}
 	p := playlist.New()
 	p.Replace([]playlist.Track{
 		{Title: "Playing", Path: "a.mp3", DurationSecs: 180},
@@ -1192,20 +1198,23 @@ func TestQueueToggleRearmsGaplessPreload(t *testing.T) {
 		{Title: "Queued", Path: "c.mp3", DurationSecs: 180},
 	})
 	m := Model{
-		player:   player,
-		playlist: p,
-		plCursor: 2,
+		player:     player,
+		playlist:   p,
+		plCursor:   2,
+		preloadFor: "b.mp3",
 	}
 
-	cmd := m.handleKey(tea.KeyPressMsg{Text: "a"})
-	if cmd == nil {
-		t.Fatal("handleKey(a) = nil, want preload command")
-	}
+	m.handleKey(tea.KeyPressMsg{Text: "a"})
 	if got := p.QueueLen(); got != 1 {
 		t.Fatalf("QueueLen() = %d, want 1", got)
 	}
+	m.dropStalePreload()
 	if player.clearPreloadCalls != 1 {
 		t.Fatalf("ClearPreload calls = %d, want 1", player.clearPreloadCalls)
+	}
+	cmd := m.preloadNext()
+	if cmd == nil {
+		t.Fatal("preloadNext() = nil, want preload command")
 	}
 	cmd()
 	if len(player.preloadCalls) != 1 || player.preloadCalls[0] != "c.mp3" {

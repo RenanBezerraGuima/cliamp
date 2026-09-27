@@ -575,7 +575,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	}
 
 	// Focused settings reuse the global actions below, including notifications,
-	// config persistence, and gapless rearming.
+	// and config persistence.
 	key := msg.String()
 	repeatStep := playlist.RepeatMode(1)
 	switch m.focus {
@@ -801,12 +801,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		const repeatModes = playlist.RepeatOne + 1
 		m.playlist.SetRepeat((m.playlist.Repeat() + repeatStep + repeatModes) % repeatModes)
 		m.saveConfigKey("repeat", fmt.Sprintf("%q", m.playlist.Repeat().String()))
-		return m.rearmPreload()
+		return nil
 
 	case "z":
 		m.playlist.ToggleShuffle()
 		m.saveConfigKey("shuffle", fmt.Sprintf("%v", m.playlist.Shuffled()))
-		return m.rearmPreload()
+		return nil
 
 	case "tab":
 		m.focus = m.nextMainFocus(m.focus)
@@ -836,7 +836,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 				m.playlist.Queue(m.plCursor)
 			}
 			m.normalizeQueueOverlay()
-			return m.rearmPreload()
+			return nil
 		}
 
 	case "w":
@@ -1576,7 +1576,7 @@ func (m *Model) handleSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 				m.playlist.Queue(idx)
 			}
 			m.normalizeQueueOverlay()
-			return m.rearmPreload()
+			return nil
 		}
 
 	case tea.KeyUp:
@@ -3063,54 +3063,30 @@ func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		m.normalizeQueueOverlay()
 	case "shift+up":
-		moved := false
-		if m.queue.cursor > 0 {
-			if m.playlist.MoveQueue(m.queue.cursor, m.queue.cursor-1) {
-				m.queue.cursor--
-				moved = true
-			}
+		if m.queue.cursor > 0 && m.playlist.MoveQueue(m.queue.cursor, m.queue.cursor-1) {
+			m.queue.cursor--
 		}
 		m.normalizeQueueOverlay()
-		if moved {
-			return m.rearmPreload()
-		}
 	case "shift+down":
-		moved := false
-		if m.queue.cursor < qLen-1 {
-			if m.playlist.MoveQueue(m.queue.cursor, m.queue.cursor+1) {
-				m.queue.cursor++
-				moved = true
-			}
+		if m.queue.cursor < qLen-1 && m.playlist.MoveQueue(m.queue.cursor, m.queue.cursor+1) {
+			m.queue.cursor++
 		}
 		m.normalizeQueueOverlay()
-		if moved {
-			return m.rearmPreload()
-		}
 	case "d":
-		removed := false
 		if qLen > 0 {
 			m.playlistUndo = playlistUndo{active: true, snapshot: m.playlist.Snapshot()}
 			m.playlist.RemoveQueueAt(m.queue.cursor)
-			removed = true
 			m.status.Show("Removed queued track (Ctrl+Z to undo)", statusTTLDefault)
 		}
 		m.normalizeQueueOverlay()
-		if removed {
-			return m.rearmPreload()
-		}
 	case "c":
-		cleared := false
 		if qLen > 0 {
 			m.playlistUndo = playlistUndo{active: true, snapshot: m.playlist.Snapshot()}
 			m.playlist.ClearQueue()
-			cleared = true
 			m.normalizeQueueOverlay()
 			m.status.Show("Cleared queue (Ctrl+Z to undo)", statusTTLDefault)
 		}
 		m.queue.visible = false
-		if cleared {
-			return m.rearmPreload()
-		}
 	case "esc", "A":
 		m.queue.visible = false
 	}

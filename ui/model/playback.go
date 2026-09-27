@@ -264,7 +264,7 @@ func (m *Model) queueAlbumNext(album playlist.Track, tracks []playlist.Track) te
 		m.notifyPlayback()
 		return cmd
 	}
-	return m.rearmPreload()
+	return nil
 }
 
 // closeNetSearch fully resets the net search overlay and restores focus,
@@ -320,7 +320,7 @@ func (m *Model) queueTrackNext(track playlist.Track) tea.Cmd {
 		m.notifyPlayback()
 		return cmd
 	}
-	return m.rearmPreload()
+	return nil
 }
 
 // removeSelectedFromPlaylist removes the track at the current playlist cursor.
@@ -424,7 +424,7 @@ func (m *Model) undoPlaylistMutation() tea.Cmd {
 	}
 	m.adjustScroll()
 	m.status.Show("Restored previous playlist state", statusTTLDefault)
-	return m.rearmPreload()
+	return nil
 }
 
 // playTrack plays a track, using async HTTP for streams and sync I/O for local files.

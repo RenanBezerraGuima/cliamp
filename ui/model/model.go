@@ -415,6 +415,9 @@ type Model struct {
 
 	// preloading is true while a preloadStreamCmd goroutine is in-flight.
 	preloading bool
+	// preloadFor is the path of the track the last dispatched preload arms,
+	// so dropStalePreload can tell a still-valid preload from a stale one.
+	preloadFor string
 
 	// Live stream title from ICY metadata (e.g., "Artist - Song")
 	streamTitle string

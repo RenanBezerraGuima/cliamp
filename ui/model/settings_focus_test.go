@@ -272,11 +272,10 @@ func TestSettingsFocusActions(t *testing.T) {
 				saver := &recordingConfigSaver{}
 				m.player, m.notifier, m.configSaver, m.focus = p, notifier, saver, focus
 				m.plCursor = 2
-				cmd := m.handleKey(key)
+				m.handleKey(key)
 				s := key.String()
 				back := slices.Contains([]string{"left", "down", "h", "j"}, s)
 				arrow := back || slices.Contains([]string{"right", "up", "l", "k"}, s)
-				modeChanged := false
 				switch {
 				case s == "+" || s == "=" || s == "-" || focus == focusVolume && arrow:
 					want := 1.0
@@ -287,12 +286,10 @@ func TestSettingsFocusActions(t *testing.T) {
 						t.Fatalf("volume = %v, notifications = %v, want %v", p.volume, notifier.updates, want)
 					}
 				case s == "z" || focus == focusShuffle && (arrow || s == "enter"):
-					modeChanged = true
 					if !m.playlist.Shuffled() || saver.values["shuffle"] != "true" {
 						t.Fatalf("shuffle was not toggled and persisted: %v", saver.values)
 					}
 				case s == "r" || focus == focusRepeat && (arrow || s == "enter"):
-					modeChanged = true
 					want := playlist.RepeatAll
 					if back {
 						want = playlist.RepeatOne
@@ -304,9 +301,6 @@ func TestSettingsFocusActions(t *testing.T) {
 					if !p.mono {
 						t.Fatal("global mono toggle was swallowed")
 					}
-				}
-				if modeChanged && (cmd == nil || p.clearPreloadCalls != 1 || !m.preloading) {
-					t.Fatal("mode change did not clear and rearm gapless preload")
 				}
 				if m.plCursor != 2 || len(p.seekCalls) != 0 || m.buffering || m.focus != focus {
 					t.Fatal("focused action moved the playlist, sought, played, or changed focus")

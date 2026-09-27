@@ -460,7 +460,6 @@ func (m *Model) handleV2Mode(jobs *ipc.JobStore, jobID string, request ipc.Reque
 		}
 		value := m.playlist.Shuffled()
 		_ = m.configSaver.Save("shuffle", fmt.Sprintf("%v", value))
-		m.player.ClearPreload()
 		m.completeV2Job(jobs, jobID, ipc.Response{OK: true, Shuffle: &value})
 	case "repeat":
 		switch name {
@@ -474,7 +473,6 @@ func (m *Model) handleV2Mode(jobs *ipc.JobStore, jobID string, request ipc.Reque
 			m.playlist.CycleRepeat()
 		}
 		_ = m.configSaver.Save("repeat", fmt.Sprintf("%q", m.playlist.Repeat().String()))
-		m.player.ClearPreload()
 		m.completeV2Job(jobs, jobID, ipc.Response{OK: true, Repeat: m.playlist.Repeat().String()})
 	case "mono":
 		if (name == "on" && !m.player.Mono()) || (name == "off" && m.player.Mono()) || (name != "on" && name != "off") {

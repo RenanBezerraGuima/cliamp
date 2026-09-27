@@ -34,7 +34,7 @@ func TestPluginQueueAddTrackAppendsAsGiven(t *testing.T) {
 // With repeat-all on the last track, the gapless preload has already armed the
 // first track. A plugin append makes the new track next, so the preload must be
 // re-armed for it, for both queue.add forms.
-func TestPluginQueueAddRearmsGaplessPreload(t *testing.T) {
+func TestPluginQueueAddDropsStalePreload(t *testing.T) {
 	for name, msg := range map[string]any{
 		"table":  PluginQueueMsg{Op: "add_track", Track: playlist.Track{Path: "c.mp3", DurationSecs: 180}},
 		"string": pluginQueueAddedMsg{tracks: []playlist.Track{{Path: "c.mp3", DurationSecs: 180}}},
@@ -48,14 +48,16 @@ func TestPluginQueueAddRearmsGaplessPreload(t *testing.T) {
 			})
 			p.SetRepeat(playlist.RepeatAll)
 			p.SetIndex(1)
-			m := Model{player: player, playlist: p}
+			m := Model{player: player, playlist: p, preloadFor: "a.mp3"}
 
-			_, cmd := m.Update(msg)
+			next, _ := m.Update(msg)
 			if player.clearPreloadCalls != 1 {
 				t.Fatalf("ClearPreload calls = %d, want 1 (a.mp3 was armed)", player.clearPreloadCalls)
 			}
+			nm := next.(Model)
+			cmd := nm.preloadNext()
 			if cmd == nil {
-				t.Fatal("Update returned no preload command")
+				t.Fatal("preloadNext() = nil, want preload command")
 			}
 			cmd()
 			if len(player.preloadCalls) != 1 || player.preloadCalls[0] != "c.mp3" {

@@ -22,14 +22,48 @@ const streamPreloadLeadTime = 3 * time.Second
 // takes 3-10 seconds, so we start preloading much earlier.
 const ytdlPreloadLeadTime = 15 * time.Second
 
-// rearmPreload discards any armed gapless pipeline and re-arms from the
-// current playlist state. Call after any change that alters which track
-// plays next.
-func (m *Model) rearmPreload() tea.Cmd {
+// preloadTarget returns the track the gapless pipeline should hold next. It is
+// false when nothing should be armed: a live stream is playing, the queue ends
+// here, or the next yt-dlp track is the one already playing.
+func (m *Model) preloadTarget() (playlist.Track, bool) {
+	// Live streams do not have a track boundary. Preloading another station
+	// would turn a transient EOF into a gapless switch instead of reconnecting
+	// the station the user selected.
+	current, currentIdx := m.currentPlaybackTrack()
+	if currentIdx >= 0 && m.currentPlaybackIsLive(current) {
+		return playlist.Track{}, false
+	}
+	var next playlist.Track
+	var ok bool
+	if m.playbackDetached {
+		var idx int
+		next, idx = m.playlist.Current()
+		ok = idx >= 0
+	} else {
+		next, ok = m.playlist.PeekNext()
+	}
+	if !ok || (playlist.IsYTDL(next.Path) && currentIdx >= 0 && next.Path == current.Path) {
+		return playlist.Track{}, false
+	}
+	return next, true
+}
+
+// dropStalePreload discards an armed or in-flight preload that is no longer
+// the track that plays next. Update runs it after every message, so a change
+// to the queue, the play-next list, shuffle or repeat needs no call of its
+// own, and a preload that is still right is kept. The tick loop arms the new
+// next track under its guards.
+func (m *Model) dropStalePreload() {
+	if m.player == nil || m.playlist == nil || (!m.preloading && !m.player.HasPreload()) {
+		return
+	}
+	if next, ok := m.preloadTarget(); ok && next.Path == m.preloadFor {
+		return
+	}
 	nextRequest(&m.requests.preload)
 	m.preloading = false
+	m.preloadFor = ""
 	m.player.ClearPreload()
-	return m.preloadNext()
 }
 
 // preloadNext looks ahead in the playlist and preloads the next track for
@@ -44,32 +78,12 @@ func (m *Model) rearmPreload() tea.Cmd {
 // When position has not yet reached the threshold, this function returns nil
 // and the tick loop will retry on the next pass.
 func (m *Model) preloadNext() tea.Cmd {
-	// Live streams do not have a track boundary. Preloading another station
-	// would turn a transient EOF into a gapless switch instead of reconnecting
-	// the station the user selected.
-	current, currentIdx := m.currentPlaybackTrack()
-	if currentIdx >= 0 && m.currentPlaybackIsLive(current) {
-		return nil
-	}
-
-	var next playlist.Track
-	var ok bool
-	if m.playbackDetached {
-		var idx int
-		next, idx = m.playlist.Current()
-		ok = idx >= 0
-	} else {
-		next, ok = m.playlist.PeekNext()
-	}
+	next, ok := m.preloadTarget()
 	if !ok {
 		return nil
 	}
-	isYTDL := playlist.IsYTDL(next.Path)
-	if isYTDL && currentIdx >= 0 && next.Path == current.Path {
-		return nil
-	}
 	// Preload yt-dlp tracks with the same lead-time deferral as HTTP streams.
-	if isYTDL {
+	if playlist.IsYTDL(next.Path) {
 		dur := m.player.Duration()
 		if dur > 0 {
 			remaining := dur - m.player.Position()
@@ -79,6 +93,7 @@ func (m *Model) preloadNext() tea.Cmd {
 		}
 		nextDur := time.Duration(next.DurationSecs) * time.Second
 		m.preloading = true
+		m.preloadFor = next.Path
 		return preloadYTDLStreamCmd(m.player, next.Path, nextDur, nextRequest(&m.requests.preload), m.player.BeginPreload())
 	}
 	if next.Stream {
@@ -99,9 +114,11 @@ func (m *Model) preloadNext() tea.Cmd {
 		// Mark in-flight so the tick loop doesn't dispatch a second concurrent
 		// preload before this goroutine has finished arming gapless.SetNext.
 		m.preloading = true
+		m.preloadFor = next.Path
 		return preloadStreamCmd(m.player, next.Path, nextDur, nextRequest(&m.requests.preload), m.player.BeginPreload())
 	}
 	nextDur := time.Duration(next.DurationSecs) * time.Second
 	m.preloading = true
+	m.preloadFor = next.Path
 	return preloadLocalCmd(m.player, next.Path, nextDur, nextRequest(&m.requests.preload), m.player.BeginPreload())
 }

@@ -29,8 +29,20 @@ func (m *Model) scheduleReconnect(now time.Time) {
 	m.err = m.reconnect.notice
 }
 
-// Update handles messages: key presses, ticks, and window resizes.
+// Update handles messages: key presses, ticks, and window resizes. After each
+// message it drops a gapless preload the message made stale (see
+// dropStalePreload), so handlers that change the queue need not.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(msg)
+	if nm, ok := next.(Model); ok {
+		nm.dropStalePreload()
+		next = nm
+	}
+	return next, cmd
+}
+
+// update is Update without the stale-preload check.
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	wasScreen := m.activeScreen()
 	wasVisualizerVisible := m.visualizerVisible()
 	wasMode := ui.VisNone
@@ -453,16 +465,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.playlist.Add(msg.tracks...)
 			m.normalizeQueueOverlay()
 			m.addToHeaderState(msg.tracks)
-			// Add mixes the page into the upcoming shuffle order, so an armed
-			// preload may no longer be the next track. The gapless swap runs on
-			// the audio thread and the model then names the new track from
-			// playlist.Next(), so a stale preload would play one track while the
-			// UI, scrobble and now-playing announced another. Drop it and let the
-			// tick loop re-arm against the order this page produced.
-			if m.player.HasPreload() || m.preloading {
-				m.player.ClearPreload()
-				m.preloading = false
-			}
 		} else {
 			m.replacePlayerPlaylist(msg.tracks)
 			if msg.playlistExact && m.localProvider != nil && msg.providerName == m.localProvider.Name() && msg.playlistID != history.PlaylistName {
@@ -670,7 +672,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleSubsEpisodes(msg)
 
 	case subsLatestAllMsg:
-		return m, m.handleSubsLatestAll(msg)
+		m.addLatestSweep(msg)
+		return m, nil
 
 	case feedsLoadedMsg:
 		m.feedLoading = false
@@ -1091,7 +1094,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case pluginQueueAddedMsg:
-		return m, m.appendPluginTracks(msg.tracks...)
+		m.appendPluginTracks(msg.tracks...)
+		return m, nil
 
 	case ShowStatusMsg:
 		ttl := statusTTLDefault
@@ -1189,11 +1193,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err := m.configSaver.Save("shuffle", fmt.Sprintf("%v", shuffled)); err != nil {
 			m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
 		}
-		cmd := m.rearmPreload()
 		if msg.Reply != nil {
 			msg.Reply <- ipc.Response{OK: true, Shuffle: &shuffled}
 		}
-		return m, cmd
+		return m, nil
 
 	case ipc.RepeatMsg:
 		switch strings.ToLower(msg.Name) {
@@ -1210,11 +1213,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err := m.configSaver.Save("repeat", fmt.Sprintf("%q", mode.String())); err != nil {
 			m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
 		}
-		cmd := m.rearmPreload()
 		if msg.Reply != nil {
 			msg.Reply <- ipc.Response{OK: true, Repeat: mode.String()}
 		}
-		return m, cmd
+		return m, nil
 
 	case ipc.MonoMsg:
 		switch strings.ToLower(msg.Name) {
