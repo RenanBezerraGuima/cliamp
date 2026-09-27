@@ -197,11 +197,10 @@ func tracksContainPath(tracks []playlist.Track, path string) bool {
 func (m *Model) replacePlayerPlaylist(tracks []playlist.Track) {
 	if m.player.IsPlaying() || m.buffering {
 		m.detachPlaybackTrack()
-		m.player.ClearPreload()
-		m.preloading = false
+		m.clearPreload()
 	} else {
 		m.player.Stop()
-		m.player.ClearPreload()
+		m.clearPreload()
 		m.clearPlaybackTrack()
 	}
 	m.resetYTDLBatch()

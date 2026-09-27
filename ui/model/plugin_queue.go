@@ -84,7 +84,7 @@ func (m *Model) removeIndex(idx int) {
 	m.normalizeQueueOverlay()
 	if wasActive {
 		m.stopPlayback()
-		m.player.ClearPreload()
+		m.clearPreload()
 	}
 	if newLen := m.playlist.Len(); newLen == 0 {
 		m.plCursor = 0

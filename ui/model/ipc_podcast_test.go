@@ -33,7 +33,12 @@ func ipcPodcastTestModel() (Model, *playbackFakeEngine) {
 	)
 	pl.Queue(2)
 	pl.Queue(1)
-	return Model{player: engine, playlist: pl, loadedPlaylist: "Saved"}, engine
+	m := Model{player: engine, playlist: pl, loadedPlaylist: "Saved"}
+	// Start with the next track armed, as during playback, so an Update that
+	// leaves the queue alone leaves the preload and the engine alone too.
+	next, _ := m.preloadTarget()
+	engine.hasPreload, m.preloadFor = true, next.Path
+	return m, engine
 }
 
 func TestIPCPodcastTrackActions(t *testing.T) {

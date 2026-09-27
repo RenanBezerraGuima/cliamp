@@ -48,77 +48,78 @@ func (m *Model) preloadTarget() (playlist.Track, bool) {
 	return next, true
 }
 
-// dropStalePreload discards an armed or in-flight preload that is no longer
-// the track that plays next. Update runs it after every message, so a change
-// to the queue, the play-next list, shuffle or repeat needs no call of its
-// own, and a preload that is still right is kept. The tick loop arms the new
-// next track under its guards.
-func (m *Model) dropStalePreload() {
-	if m.player == nil || m.playlist == nil || (!m.preloading && !m.player.HasPreload()) {
-		return
+// reconcilePreload keeps the gapless pipeline in step with the queue. Update
+// runs it after every message. It drops an armed or in-flight preload that is
+// no longer for the track that plays next, then arms the next track when
+// playback can take one. It is the only place that arms, so a queue change,
+// unpausing, a seek, a new track and a gapless advance all arm here, and a
+// preload that is still right is kept.
+func (m *Model) reconcilePreload() tea.Cmd {
+	if m.player == nil || m.playlist == nil {
+		return nil
 	}
-	if next, ok := m.preloadTarget(); ok && next.Path == m.preloadFor {
-		return
+	if m.preloading || m.player.HasPreload() {
+		if next, ok := m.preloadTarget(); !ok || next.Path != m.preloadFor {
+			m.clearPreload()
+		}
 	}
-	nextRequest(&m.requests.preload)
-	m.preloading = false
-	m.preloadFor = ""
-	m.player.ClearPreload()
+	// Arm only while audio plays: a preload armed while paused can go stale,
+	// the current track may still be starting while buffering, only one
+	// preload runs at a time, and each page of a paged load remixes the
+	// upcoming order, so anything armed mid-load would be stale by the next.
+	if !m.player.IsPlaying() || m.player.IsPaused() || m.buffering || m.preloading || m.tracksPaging || m.player.HasPreload() {
+		return nil
+	}
+	return m.preloadNext()
 }
 
-// preloadNext looks ahead in the playlist and preloads the next track for
-// gapless transition. Errors are silently ignored — playback falls back to
-// non-gapless if preloading fails.
+// clearPreload discards any armed or in-flight preload. A preload still in
+// flight completes into a no-op: the player rejects its stale generation, and
+// the next arm bumps the request so its completion is ignored.
+func (m *Model) clearPreload() {
+	m.preloading = false
+	m.preloadFor = ""
+	if m.player != nil {
+		m.player.ClearPreload()
+	}
+}
+
+// preloadNext arms the next track for a gapless transition, or returns nil
+// when there is none or it is too early. Errors are silently ignored:
+// playback falls back to non-gapless if preloading fails.
 //
-// For HTTP streams with a known duration, preloading is deferred until the
-// current track is within streamPreloadLeadTime of its end. This prevents the
-// gapless streamer from having a live HTTP connection armed too early, which
-// would cause the player to skip to the next track if the decoder signals EOF
-// prematurely (e.g. a mis-estimated Content-Length from a transcoding server).
-// When position has not yet reached the threshold, this function returns nil
-// and the tick loop will retry on the next pass.
+// HTTP streams wait until the current track is within streamPreloadLeadTime
+// of its end, and are not armed at all without a known duration. An early
+// connection can go stale for the whole track, or make the player skip ahead
+// if the decoder signals EOF prematurely (e.g. a mis-estimated Content-Length
+// from a transcoding server). yt-dlp tracks wait for ytdlPreloadLeadTime but
+// are armed at once when the duration is unknown, since their pipe chain is
+// slow to start. reconcilePreload retries after every message, so a deferred
+// preload is armed once the window opens.
 func (m *Model) preloadNext() tea.Cmd {
 	next, ok := m.preloadTarget()
 	if !ok {
 		return nil
 	}
-	// Preload yt-dlp tracks with the same lead-time deferral as HTTP streams.
-	if playlist.IsYTDL(next.Path) {
-		dur := m.player.Duration()
-		if dur > 0 {
-			remaining := dur - m.player.Position()
-			if remaining > ytdlPreloadLeadTime {
-				return nil
-			}
-		}
-		nextDur := time.Duration(next.DurationSecs) * time.Second
-		m.preloading = true
-		m.preloadFor = next.Path
-		return preloadYTDLStreamCmd(m.player, next.Path, nextDur, nextRequest(&m.requests.preload), m.player.BeginPreload())
+	build, lead := preloadCmd, time.Duration(0)
+	switch {
+	case playlist.IsYTDL(next.Path):
+		build, lead = preloadYTDLStreamCmd, ytdlPreloadLeadTime
+	case next.Stream:
+		lead = streamPreloadLeadTime
 	}
-	if next.Stream {
-		// For streams, only arm gapless if we're within the lead-time window.
-		// Without a known boundary, opening the next connection now can leave it
-		// stale for the entire track or pause and turn one EOF into several skips.
+	if lead > 0 {
 		dur := m.player.Duration()
-		if dur <= 0 {
+		if dur <= 0 && !playlist.IsYTDL(next.Path) {
 			return nil
 		}
-		pos := m.player.Position()
-		remaining := dur - pos
-		if remaining > streamPreloadLeadTime {
-			// Too early — caller should retry from the tick loop.
+		if dur > 0 && dur-m.player.Position() > lead {
 			return nil
 		}
-		nextDur := time.Duration(next.DurationSecs) * time.Second
-		// Mark in-flight so the tick loop doesn't dispatch a second concurrent
-		// preload before this goroutine has finished arming gapless.SetNext.
-		m.preloading = true
-		m.preloadFor = next.Path
-		return preloadStreamCmd(m.player, next.Path, nextDur, nextRequest(&m.requests.preload), m.player.BeginPreload())
 	}
+	// Mark in flight so no second preload starts before this one has armed,
+	// and record the track so reconcilePreload can tell whether it is stale.
+	m.preloading, m.preloadFor = true, next.Path
 	nextDur := time.Duration(next.DurationSecs) * time.Second
-	m.preloading = true
-	m.preloadFor = next.Path
-	return preloadLocalCmd(m.player, next.Path, nextDur, nextRequest(&m.requests.preload), m.player.BeginPreload())
+	return build(m.player, next.Path, nextDur, nextRequest(&m.requests.preload), m.player.BeginPreload())
 }

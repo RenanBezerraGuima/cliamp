@@ -50,16 +50,10 @@ func TestPluginQueueAddDropsStalePreload(t *testing.T) {
 			p.SetIndex(1)
 			m := Model{player: player, playlist: p, preloadFor: "a.mp3"}
 
-			next, _ := m.Update(msg)
+			update(t, m, msg)
 			if player.clearPreloadCalls != 1 {
 				t.Fatalf("ClearPreload calls = %d, want 1 (a.mp3 was armed)", player.clearPreloadCalls)
 			}
-			nm := next.(Model)
-			cmd := nm.preloadNext()
-			if cmd == nil {
-				t.Fatal("preloadNext() = nil, want preload command")
-			}
-			cmd()
 			if len(player.preloadCalls) != 1 || player.preloadCalls[0] != "c.mp3" {
 				t.Fatalf("preloadCalls = %v, want [c.mp3]", player.preloadCalls)
 			}

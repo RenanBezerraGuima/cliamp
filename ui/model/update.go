@@ -30,18 +30,20 @@ func (m *Model) scheduleReconnect(now time.Time) {
 }
 
 // Update handles messages: key presses, ticks, and window resizes. After each
-// message it drops a gapless preload the message made stale (see
-// dropStalePreload), so handlers that change the queue need not.
+// message it brings the gapless preload in step with the queue (see
+// reconcilePreload), so no handler arms or drops one itself.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	next, cmd := m.update(msg)
 	if nm, ok := next.(Model); ok {
-		nm.dropStalePreload()
+		if preload := nm.reconcilePreload(); preload != nil {
+			cmd = tea.Batch(cmd, preload)
+		}
 		next = nm
 	}
 	return next, cmd
 }
 
-// update is Update without the stale-preload check.
+// update is Update without the preload reconciliation.
 func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	wasScreen := m.activeScreen()
 	wasVisualizerVisible := m.visualizerVisible()
@@ -133,15 +135,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status.Warningf(statusTTLMedium, "Seek failed; playback continues from the previous position: %s", msg.err)
 			}
 			m.notifyAll()
-			cmd := m.preloadNext()
-			return m, cmd
+			return m, nil
 		}
 		if msg.resume {
 			m.status.Showf(statusTTLDefault, "Resumed at %s", formatJumpClock(msg.target))
 		}
 		m.finishSeek()
-		cmd := m.preloadNext()
-		return m, cmd
+		return m, nil
 
 	case ytdlUnpauseReconnectMsg:
 		m.seek.active = false
@@ -339,9 +339,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if gaplessLyricCmd != nil {
 				cmds = append(cmds, gaplessLyricCmd)
 			}
-			// The preload that just fired is consumed — clear the in-flight flag
-			// so the next track can be preloaded.
-			m.preloading = false
 			// A stream decoder error at the track boundary (e.g., server closing
 			// the connection when the preload HTTP request opens) is expected and
 			// not a user-visible problem. Clear any pending error so the red
@@ -349,7 +346,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = nil
 			// Gapless advances without calling playTrack(), so emit now-playing here.
 			m.nowPlaying(newTrack)
-			cmds = append(cmds, m.preloadNext())
 			m.notifyAll()
 		}
 		m.tickResumeSave(now)
@@ -384,18 +380,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notifyAll()
 		}
 		m.advanceTitleScroll(now)
-		// Retry deferred stream preload: preloadNext() returns nil (defers) when
-		// the current stream has >streamPreloadLeadTime remaining. Poll every tick
-		// until we're within the window and the preload gets armed.
-		// Guard with !m.preloading so we don't fire a second concurrent HTTP
-		// connection while the first preloadStreamCmd goroutine is still running,
-		// and with !m.tracksPaging because each page of a paged load remixes the
-		// upcoming order, so anything armed now would be stale by the next one.
-		if m.player.IsPlaying() && !m.player.IsPaused() && !m.buffering && !m.preloading && !m.tracksPaging && !m.player.HasPreload() {
-			if cmd := m.preloadNext(); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
 
 		m.advanceTerminalTitle()
 		cmds = append(cmds, tickCmdAt(m.tickInterval()))
@@ -765,7 +749,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.replace {
 			m.player.Stop()
-			m.player.ClearPreload()
+			m.clearPreload()
 			m.resetYTDLBatch()
 			m.retireTracksPaging()
 			m.replacePlaylist(msg.tracks)
@@ -834,8 +818,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.nowPlaying(track)
 		}
 		m.notifyAll()
-		preloadCmd := m.preloadNext()
-		return m, tea.Batch(resumeCmd, preloadCmd)
+		return m, resumeCmd
 
 	case streamPreloadedMsg:
 		if msg.gen != m.requests.preload {

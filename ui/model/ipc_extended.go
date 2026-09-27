@@ -72,7 +72,7 @@ func (m *Model) handleIPCURLResult(result ipcURLLoadResult) tea.Cmd {
 	result.request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(result.tracks), Total: len(result.tracks)}
 	if result.request.Play {
 		m.player.Stop()
-		m.player.ClearPreload()
+		m.clearPreload()
 		m.playlist.SetIndex(start)
 		m.plCursor = start
 		m.adjustScroll()

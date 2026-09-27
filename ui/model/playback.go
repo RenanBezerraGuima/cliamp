@@ -176,7 +176,7 @@ func (m *Model) playCurrentTrack() tea.Cmd {
 // stopping any current playback. Used by search-result "Play now" actions.
 func (m *Model) playTrackImmediate(track playlist.Track) tea.Cmd {
 	m.player.Stop()
-	m.player.ClearPreload()
+	m.clearPreload()
 	m.playlist.Add(track)
 	m.loadedPlaylist = ""
 	m.addToHeaderState([]playlist.Track{track})
@@ -214,7 +214,7 @@ func (m *Model) appendTrack(track playlist.Track) tea.Cmd {
 // queue built up over an evening survives picking an album from search.
 func (m *Model) playAlbumImmediate(album playlist.Track, tracks []playlist.Track) tea.Cmd {
 	m.player.Stop()
-	m.player.ClearPreload()
+	m.clearPreload()
 	idx := m.playlist.Len()
 	m.playlist.Add(tracks...)
 	m.loadedPlaylist = ""
@@ -383,7 +383,7 @@ func (m *Model) removeSelectedFromPlaylist() {
 	m.playlistUndo = playlistUndo{active: true, snapshot: snapshot, loaded: loaded, saved: saved, persisted: persisted}
 	if wasActive {
 		m.stopPlayback()
-		m.player.ClearPreload()
+		m.clearPreload()
 	}
 	if newLen := m.playlist.Len(); newLen == 0 {
 		m.plCursor = 0
@@ -476,16 +476,8 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		m.applyResume()
 		m.nowPlaying(track)
 		m.backfillLoadedPlaylistDuration(track)
-		if fetchCmd != nil {
-			return tea.Batch(m.preloadNext(), fetchCmd)
-		}
-		return m.preloadNext()
 	}
-
-	if fetchCmd != nil {
-		return tea.Batch(m.preloadNext(), fetchCmd)
-	}
-	return m.preloadNext()
+	return fetchCmd
 }
 
 func (m *Model) backfillLoadedPlaylistDuration(track playlist.Track) {
@@ -532,10 +524,8 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	if m.player != nil {
 		m.player.CancelSeekYTDL()
 		m.player.SetPlaybackGeneration(m.requests.stream)
-		m.player.ClearPreload()
 	}
-	nextRequest(&m.requests.preload)
-	m.preloading = false
+	m.clearPreload()
 	nextRequest(&m.requests.lyrics)
 	track = playlist.RefreshEmbeddedMetadata(track)
 	context, index := track.PlaybackContext()

@@ -2212,7 +2212,7 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 // starts playback at startIdx.
 func (m *Model) plMgrLoadAndPlay(startIdx int) tea.Cmd {
 	m.player.Stop()
-	m.player.ClearPreload()
+	m.clearPreload()
 	m.resetYTDLBatch()
 	m.retireTracksPaging()
 	m.replacePlaylist(m.plManager.tracks)

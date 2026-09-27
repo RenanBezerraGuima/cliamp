@@ -309,16 +309,10 @@ func playStreamCmd(p player.Engine, path string, knownDuration time.Duration, st
 	}
 }
 
-func preloadStreamCmd(p player.Engine, path string, knownDuration time.Duration, gen, preloadGen uint64) tea.Cmd {
+// preloadCmd arms a local file or HTTP stream as the gapless next track.
+func preloadCmd(p player.Engine, path string, knownDuration time.Duration, gen, preloadGen uint64) tea.Cmd {
 	return func() tea.Msg {
 		p.PreloadForGeneration(path, knownDuration, preloadGen) // errors silently ignored
-		return streamPreloadedMsg{path: path, gen: gen}
-	}
-}
-
-func preloadLocalCmd(p player.Engine, path string, knownDuration time.Duration, gen, preloadGen uint64) tea.Cmd {
-	return func() tea.Msg {
-		p.PreloadForGeneration(path, knownDuration, preloadGen)
 		return streamPreloadedMsg{path: path, gen: gen}
 	}
 }
