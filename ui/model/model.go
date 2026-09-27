@@ -418,6 +418,9 @@ type Model struct {
 	// preloadFor is the path of the track the last dispatched preload arms,
 	// so reconcilePreload can tell a still-valid preload from a stale one.
 	preloadFor string
+	// preloadFailed is the path of a track whose preload failed. It is not
+	// retried until a preload is cleared, e.g. when a new track starts.
+	preloadFailed string
 
 	// Live stream title from ICY metadata (e.g., "Artist - Song")
 	streamTitle string

@@ -115,6 +115,7 @@ type streamPlayedMsg struct {
 type streamPreloadedMsg struct {
 	path string
 	gen  uint64
+	err  error
 }
 
 type attachNotifierMsg struct{ notifier playback.Notifier }
@@ -312,8 +313,8 @@ func playStreamCmd(p player.Engine, path string, knownDuration time.Duration, st
 // preloadCmd arms a local file or HTTP stream as the gapless next track.
 func preloadCmd(p player.Engine, path string, knownDuration time.Duration, gen, preloadGen uint64) tea.Cmd {
 	return func() tea.Msg {
-		p.PreloadForGeneration(path, knownDuration, preloadGen) // errors silently ignored
-		return streamPreloadedMsg{path: path, gen: gen}
+		err := p.PreloadForGeneration(path, knownDuration, preloadGen)
+		return streamPreloadedMsg{path: path, gen: gen, err: err}
 	}
 }
 
@@ -325,8 +326,8 @@ func playYTDLStreamCmd(p player.Engine, pageURL string, knownDuration time.Durat
 
 func preloadYTDLStreamCmd(p player.Engine, pageURL string, knownDuration time.Duration, gen, preloadGen uint64) tea.Cmd {
 	return func() tea.Msg {
-		p.PreloadYTDLForGeneration(pageURL, knownDuration, preloadGen) // errors silently ignored
-		return streamPreloadedMsg{path: pageURL, gen: gen}
+		err := p.PreloadYTDLForGeneration(pageURL, knownDuration, preloadGen)
+		return streamPreloadedMsg{path: pageURL, gen: gen, err: err}
 	}
 }
 

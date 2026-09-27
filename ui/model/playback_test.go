@@ -34,6 +34,7 @@ type playbackFakeEngine struct {
 	playAtOffsets       []time.Duration
 	preloadCalls        []string
 	ytdlPreloadCalls    []string
+	preloadErr          error
 	clearPreloadCalls   int
 	cancelSeekYTDLCalls int
 	stopCalls           int
@@ -82,6 +83,10 @@ func (f *playbackFakeEngine) BeginPreload() uint64 {
 func (f *playbackFakeEngine) PreloadForGeneration(path string, dur time.Duration, generation uint64) error {
 	if f.preloadGeneration != generation {
 		return nil
+	}
+	if f.preloadErr != nil {
+		f.preloadCalls = append(f.preloadCalls, path)
+		return f.preloadErr
 	}
 	return f.Preload(path, dur)
 }

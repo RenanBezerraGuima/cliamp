@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -101,6 +102,30 @@ func TestUpdateArmsWithinLeadTime(t *testing.T) {
 				t.Fatalf("armed through yt-dlp = %v, want %v", viaYTDL, playlist.IsYTDL(tc.next.Path))
 			}
 		})
+	}
+}
+
+// A preload that fails is not retried in a loop: playback will start that
+// track without gapless. A different next track is still armed.
+func TestUpdateDoesNotRetryFailedPreload(t *testing.T) {
+	m, player := reconcileModel(playlist.Track{Title: "B", Path: "b.mp3", DurationSecs: 180})
+	player.preloadErr = errors.New("decode failed")
+	m = update(t, m, ShowStatusMsg{})
+	m = update(t, m, ShowStatusMsg{})
+	if len(player.preloadCalls) != 1 || player.hasPreload {
+		t.Fatalf("preloadCalls = %v, want one failed attempt for b.mp3", player.preloadCalls)
+	}
+
+	// A new track starting gives b.mp3 another try.
+	m = update(t, m, PluginQueueMsg{Op: "jump", Index: 0})
+	if len(player.preloadCalls) != 2 || player.preloadCalls[1] != "b.mp3" {
+		t.Fatalf("preloadCalls = %v, want b.mp3 retried once after a new track started", player.preloadCalls)
+	}
+
+	player.preloadErr = nil
+	update(t, m, PluginQueueMsg{Op: "remove", Index: 1})
+	if len(player.preloadCalls) != 3 || player.preloadCalls[2] != "c.mp3" {
+		t.Fatalf("preloadCalls = %v, want c.mp3 armed after the next track changed", player.preloadCalls)
 	}
 }
 

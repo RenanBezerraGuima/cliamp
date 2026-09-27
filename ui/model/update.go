@@ -825,6 +825,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.preloading = false
+		if msg.err != nil {
+			// Playback falls back to a non-gapless start for this track.
+			// Retrying at once would rebuild the failing pipeline in a loop.
+			m.preloadFailed = msg.path
+		}
 		return m, nil
 
 	case ytdlSavedMsg:

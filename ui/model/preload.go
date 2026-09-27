@@ -79,14 +79,15 @@ func (m *Model) reconcilePreload() tea.Cmd {
 func (m *Model) clearPreload() {
 	m.preloading = false
 	m.preloadFor = ""
+	m.preloadFailed = ""
 	if m.player != nil {
 		m.player.ClearPreload()
 	}
 }
 
 // preloadNext arms the next track for a gapless transition, or returns nil
-// when there is none or it is too early. Errors are silently ignored:
-// playback falls back to non-gapless if preloading fails.
+// when there is none, it is too early, or its preload already failed. A failed
+// preload is not retried: playback falls back to a non-gapless start.
 //
 // HTTP streams wait until the current track is within streamPreloadLeadTime
 // of its end, and are not armed at all without a known duration. An early
@@ -98,7 +99,7 @@ func (m *Model) clearPreload() {
 // preload is armed once the window opens.
 func (m *Model) preloadNext() tea.Cmd {
 	next, ok := m.preloadTarget()
-	if !ok {
+	if !ok || next.Path == m.preloadFailed {
 		return nil
 	}
 	build, lead := preloadCmd, time.Duration(0)
