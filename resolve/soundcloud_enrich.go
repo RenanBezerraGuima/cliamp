@@ -16,9 +16,11 @@ import (
 )
 
 var (
-	scClientIDMu sync.Mutex
-	scClientID   string
-	scAPIBase    = "https://api-v2.soundcloud.com"
+	scClientIDMu        sync.Mutex
+	scClientID          string
+	scRejectedClientIDs = make(map[string]struct{})
+	scAPIBase           = "https://api-v2.soundcloud.com"
+	scHomepageURL       = "https://soundcloud.com/"
 )
 
 var (
@@ -30,9 +32,11 @@ var (
 // soundCloudClientID returns a cached or newly fetched client ID for SoundCloud's v2 API.
 func soundCloudClientID(ctx context.Context) string {
 	scClientIDMu.Lock()
-	defer scClientIDMu.Unlock()
-	if scClientID != "" {
-		return scClientID
+	clientID := scClientID
+	_, rejected := scRejectedClientIDs[clientID]
+	scClientIDMu.Unlock()
+	if clientID != "" && !rejected {
+		return clientID
 	}
 
 	// 1. Try reading from yt-dlp cache if available
@@ -43,14 +47,15 @@ func soundCloudClientID(ctx context.Context) string {
 				Data string `json:"data"`
 			}
 			if err := json.Unmarshal(data, &cached); err == nil && cached.Data != "" {
-				scClientID = cached.Data
-				return scClientID
+				if clientID = rememberSoundCloudClientID(cached.Data); clientID != "" {
+					return clientID
+				}
 			}
 		}
 	}
 
 	// 2. Fetch from soundcloud.com directly
-	req, err := http.NewRequestWithContext(ctx, "GET", "https://soundcloud.com/", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", scHomepageURL, nil)
 	if err != nil {
 		return ""
 	}
@@ -80,11 +85,45 @@ func soundCloudClientID(ctx context.Context) string {
 		sResp.Body.Close()
 
 		if m := scClientIDRe.FindStringSubmatch(string(sBody)); len(m) > 1 {
-			scClientID = m[1]
-			return scClientID
+			return rememberSoundCloudClientID(m[1])
 		}
 	}
 	return ""
+}
+
+// rememberSoundCloudClientID publishes a discovered ID unless SoundCloud has
+// already rejected it. The mutex protects state only; discovery I/O stays
+// outside it so each caller remains cancellable through its own context.
+func rememberSoundCloudClientID(clientID string) string {
+	if clientID == "" {
+		return ""
+	}
+	scClientIDMu.Lock()
+	defer scClientIDMu.Unlock()
+	if _, rejected := scRejectedClientIDs[clientID]; rejected {
+		return ""
+	}
+	if scClientID != "" {
+		if _, rejected := scRejectedClientIDs[scClientID]; !rejected {
+			return scClientID
+		}
+	}
+	scClientID = clientID
+	return scClientID
+}
+
+// rejectSoundCloudClientID removes an ID from memory and marks it so the
+// yt-dlp disk cache cannot return it again after an authentication failure.
+func rejectSoundCloudClientID(clientID string) {
+	if clientID == "" {
+		return
+	}
+	scClientIDMu.Lock()
+	scRejectedClientIDs[clientID] = struct{}{}
+	if scClientID == clientID {
+		scClientID = ""
+	}
+	scClientIDMu.Unlock()
 }
 
 type scTrackInfo struct {
@@ -123,6 +162,12 @@ func enrichSoundCloudTracks(ctx context.Context, tracks []playlist.Track) {
 
 	const chunkSize = 50
 	for i := 0; i < len(pending); i += chunkSize {
+		if ctx.Err() != nil {
+			return
+		}
+		if cid == "" {
+			return
+		}
 		end := i + chunkSize
 		if end > len(pending) {
 			end = len(pending)
@@ -135,19 +180,41 @@ func enrichSoundCloudTracks(ctx context.Context, tracks []playlist.Track) {
 			idToPending[p.trackID] = p.trackIdx
 		}
 
-		apiURL := fmt.Sprintf("%s/tracks?ids=%s&client_id=%s", scAPIBase, strings.Join(ids, ","), cid)
-		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-		if err != nil {
-			continue
-		}
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			continue
-		}
 		var list []scTrackInfo
-		err = json.NewDecoder(resp.Body).Decode(&list)
-		resp.Body.Close()
-		if err != nil {
+		for attempt := 0; attempt < 2; attempt++ {
+			apiURL := fmt.Sprintf("%s/tracks?ids=%s&client_id=%s", scAPIBase, strings.Join(ids, ","), cid)
+			req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+			if err != nil {
+				break
+			}
+			resp, err := httpClient.Do(req)
+			if err != nil {
+				break
+			}
+			if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+				resp.Body.Close()
+				rejectSoundCloudClientID(cid)
+				cid = ""
+				if attempt == 0 {
+					cid = soundCloudClientID(ctx)
+					if cid != "" {
+						continue
+					}
+				}
+				break
+			}
+			if resp.StatusCode != http.StatusOK {
+				resp.Body.Close()
+				break
+			}
+			err = json.NewDecoder(resp.Body).Decode(&list)
+			resp.Body.Close()
+			if err != nil {
+				list = nil
+			}
+			break
+		}
+		if list == nil {
 			continue
 		}
 
