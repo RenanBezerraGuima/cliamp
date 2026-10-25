@@ -496,7 +496,7 @@ func TestReadRemoteCallParams(t *testing.T) {
 		{
 			name:    "params flag invalid JSON",
 			args:    []string{"cliamp", "remote", "call", "test.op", "--params", `not-json`},
-			wantErr: "--params must be a JSON value",
+			wantErr: "--params must be a JSON object",
 		},
 		{
 			name:    "params flag JSON array",
@@ -507,6 +507,16 @@ func TestReadRemoteCallParams(t *testing.T) {
 			name:    "params flag JSON string",
 			args:    []string{"cliamp", "remote", "call", "test.op", "--params", `"text"`},
 			wantErr: "parameters must be a JSON object",
+		},
+		{
+			name:    "params flag JSON null",
+			args:    []string{"cliamp", "remote", "call", "test.op", "--params", `null`},
+			wantErr: "parameters must be a JSON object",
+		},
+		{
+			name: "params stdin false does not read stdin",
+			args: []string{"cliamp", "remote", "call", "test.op", "--params-stdin=false"},
+			want: `{}`,
 		},
 		{
 			name: "params-file valid path",

@@ -1295,7 +1295,7 @@ func readRemoteCallParams(c *cli.Command) (json.RawMessage, error) {
 func readRemoteCallParamsFrom(c *cli.Command, stdin io.Reader) (json.RawMessage, error) {
 	hasParams := c.IsSet("params")
 	hasFile := c.IsSet("params-file")
-	hasStdin := c.IsSet("params-stdin")
+	hasStdin := c.Bool("params-stdin")
 
 	count := 0
 	if hasParams {
@@ -1362,10 +1362,13 @@ func readRemoteCallParamsFrom(c *cli.Command, stdin io.Reader) (json.RawMessage,
 		if hasFile || hasStdin {
 			return nil, errors.New("parameters must be valid JSON")
 		}
-		return nil, errors.New("--params must be a JSON value")
+		return nil, errors.New("--params must be a JSON object")
 	}
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(data, &obj); err != nil {
+		return nil, errors.New("parameters must be a JSON object")
+	}
+	if obj == nil {
 		return nil, errors.New("parameters must be a JSON object")
 	}
 	return json.RawMessage(data), nil
