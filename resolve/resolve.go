@@ -742,11 +742,7 @@ func ResolveYTDLBatchPageContext(ctx context.Context, pageURL string, start, cou
 		}
 		return nil, 0, fmt.Errorf("yt-dlp: %w", err)
 	}
-	tracks, entries, err := parseYTDLTracks(bytes.NewReader(stdout))
-	if err == nil {
-		enrichSoundCloudTracks(ctx, tracks)
-	}
-	return tracks, entries, err
+	return parseYTDLTracks(bytes.NewReader(stdout))
 }
 
 // resolveYTDL lists the first maxItems entries of pageURL, or all entries when
@@ -775,12 +771,7 @@ func parseYTDLTracks(r io.Reader) ([]playlist.Track, int, error) {
 			continue
 		}
 		trackURL := e.WebpageURL
-		// SoundCloud's flat-playlist entries can expose only the track ID in
-		// url (an api-v2 URL), while webpage_url may be a permalink with no
-		// metadata. Keep the API URL so enrichSoundCloudTracks can hydrate it.
-		if strings.Contains(e.URL, "api-v2.soundcloud.com/tracks/") {
-			trackURL = e.URL
-		} else if trackURL == "" {
+		if trackURL == "" {
 			trackURL = e.URL
 		}
 		if trackURL == "" {

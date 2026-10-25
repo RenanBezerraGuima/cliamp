@@ -162,8 +162,10 @@ func IsYTDL(path string) bool {
 	if strings.HasSuffix(host, ".bandcamp.com") {
 		return true
 	}
-	// SoundCloud subdomains (e.g. on.soundcloud.com)
-	if strings.HasSuffix(host, ".soundcloud.com") {
+	// SoundCloud pages and short links. Other subdomains include podcast feeds,
+	// which should not be resolved through yt-dlp.
+	switch host {
+	case "www.soundcloud.com", "m.soundcloud.com", "on.soundcloud.com":
 		return true
 	}
 	return false
